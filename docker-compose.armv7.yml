@@ -1,0 +1,18 @@
+services:
+  fitx-calendar:
+    build:
+      context: .
+      dockerfile: Dockerfile.armv7
+    image: fitx-calendar:latest
+    container_name: fitx-calendar
+    ports:
+      - "${PORT:-8787}:8787"
+    env_file: .env
+    volumes:
+      - fitx_data:/data
+    restart: unless-stopped
+
+volumes:
+  fitx_data:
+    driver: local
+

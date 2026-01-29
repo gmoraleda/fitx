@@ -1,0 +1,14 @@
+services:
+  cloudflared:
+    image: crazymax/cloudflared:latest
+    container_name: cloudflared
+    restart: unless-stopped
+    depends_on:
+      - fitx-calendar
+    environment:
+      - TUNNEL_TOKEN=${CLOUDFLARED_TOKEN}
+    # If you prefer config file instead of token, mount it and replace the command:
+    # volumes:
+    #   - ./cloudflared:/etc/cloudflared:ro
+    # command: tunnel run fitx-ics
+    command: tunnel run

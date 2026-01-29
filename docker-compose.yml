@@ -1,0 +1,28 @@
+services:
+  fitx-calendar:
+    build: .
+    image: fitx-calendar:latest
+    container_name: fitx-calendar
+    ports:
+      - "${PORT:-8787}:8787"
+    env_file: .env
+    volumes:
+      - fitx_data:/data
+    restart: unless-stopped
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared
+    # Share the network namespace with the app so configs that point to
+    # http://localhost:8787 will still work from cloudflared.
+    network_mode: "service:fitx-calendar"
+    # Named Tunnel using token (requires Cloudflare-managed domain with Public Hostname configured)
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARED_TOKEN}
+    env_file: .env
+    depends_on:
+      - fitx-calendar
+    restart: unless-stopped
+
+volumes:
+  fitx_data:
+    driver: local
