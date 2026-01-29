@@ -11,8 +11,8 @@ __pycache__/
 # Env and local data
 .env
 .env.*
+!.env.example
 .data/
 
 # Docker artifacts (not usually present)
 *.log
-
