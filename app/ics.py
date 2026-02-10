@@ -74,7 +74,9 @@ def generate_ics(course_id: int, events: Iterable[CourseEvent]) -> str:
     sorted_events = sorted(events, key=lambda e: (e.start, e.title))
     for ev in sorted_events:
         lines.append("BEGIN:VEVENT")
-        lines.append(f"UID:fitx-{course_id}-{_escape_ics(ev.id)}@local")
+        # Ensure UID uniqueness across multiple occurrences of the same course.
+        uid = f"fitx-{course_id}-{ev.id}-{int(ev.start.timestamp())}"
+        lines.append(f"UID:{_escape_ics(uid)}@local")
         lines.append(f"DTSTAMP:{_fmt_dt_utc(now)}")
         lines.append(f"DTSTART;TZID=Europe/Berlin:{_fmt_local(ev.start)}")
         lines.append(f"DTEND;TZID=Europe/Berlin:{_fmt_local(ev.end)}")

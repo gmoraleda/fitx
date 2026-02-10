@@ -222,6 +222,11 @@ def parse_schedule(data: bytes, content_type: Optional[str]) -> List[CourseEvent
 
     soup = BeautifulSoup(text, "html.parser")
 
+    # 2a) Try kursplan HTML (week grid)
+    kursplan_events = _parse_kursplan_html(soup)
+    if kursplan_events:
+        return kursplan_events
+
     # Try <script type="application/ld+json"> first
     for sc in soup.find_all("script"):
         t = (sc.get("type") or "").lower()
@@ -282,3 +287,74 @@ def _build_events_from_obj(obj: Any) -> List[CourseEvent]:
     events = sorted(uniq.values(), key=lambda e: (e.start, e.title))
     logger.debug("Parsed %d events after normalization", len(events))
     return events
+
+
+def _parse_kursplan_html(soup: BeautifulSoup) -> List[CourseEvent]:
+    # Detect kursplan markup
+    if not soup.select_one(".courses_plan__day"):
+        return []
+
+    events: list[CourseEvent] = []
+    day_nodes = soup.select(".courses_plan__day")
+    for day in day_nodes:
+        day_header = day.select_one(".courses_plan__day__date")
+        if not day_header:
+            continue
+        header_text = " ".join(day_header.get_text(" ", strip=True).split())
+        # Expect a date like "09.02.2026"
+        m = re.search(r"(\d{2}\.\d{2}\.\d{4})", header_text)
+        if not m:
+            continue
+        date_str = m.group(1)
+        try:
+            day_date = datetime.strptime(date_str, "%d.%m.%Y").replace(tzinfo=BERLIN)
+        except Exception:
+            continue
+
+        for entry in day.select(".courses_plan__entry"):
+            # Skip empty/filler blocks
+            cls = entry.get("class") or []
+            if any("empty" in c for c in cls):
+                continue
+
+            title = entry.get("data-title") or "FitX Course"
+            regular_id = entry.get("data-regular-course-id")
+
+            times = entry.select_one(".courses_plan__times")
+            if not times:
+                continue
+            times_text = " ".join(times.get_text(" ", strip=True).split())
+            tm = re.search(r"(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})", times_text)
+            if not tm:
+                continue
+            start_t, end_t = tm.group(1), tm.group(2)
+            try:
+                start_dt = datetime.strptime(f"{date_str} {start_t}", "%d.%m.%Y %H:%M").replace(
+                    tzinfo=BERLIN
+                )
+                end_dt = datetime.strptime(f"{date_str} {end_t}", "%d.%m.%Y %H:%M").replace(
+                    tzinfo=BERLIN
+                )
+            except Exception:
+                continue
+
+            cid = regular_id or f"{title}-{int(start_dt.timestamp())}"
+            events.append(
+                CourseEvent(
+                    id=str(cid),
+                    title=str(title),
+                    start=start_dt,
+                    end=end_dt,
+                    location=None,
+                    instructor=None,
+                    room=None,
+                    description=None,
+                )
+            )
+
+    # Deduplicate by (id,start,end)
+    uniq = {}
+    for e in events:
+        key = (e.id, int(e.start.timestamp()), int(e.end.timestamp()))
+        uniq[key] = e
+    return sorted(uniq.values(), key=lambda e: (e.start, e.title))

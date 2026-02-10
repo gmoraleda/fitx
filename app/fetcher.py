@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import date
 from typing import Optional, Tuple
 
 import httpx
@@ -45,3 +46,17 @@ async def fetch_course_page(
             logger.warning("Fetch attempt %s failed: %s", attempt + 1, e)
     raise RuntimeError("Failed to fetch FitX schedule after 3 attempts")
 
+
+async def fetch_kursplan_html(
+    client: httpx.AsyncClient, branch_id: int, date_from: date, cookie: Optional[str]
+) -> Tuple[bytes, Optional[str]]:
+    url = f"https://www.fitx.de/kursplan/{branch_id}?dateFrom={date_from.isoformat()}"
+    headers = build_headers(cookie)
+    for attempt in range(3):
+        try:
+            resp = await client.get(url, headers=headers, timeout=httpx.Timeout(15.0, connect=10.0))
+            ct = resp.headers.get("content-type")
+            return resp.content, ct
+        except Exception as e:
+            logger.warning("Fetch attempt %s failed (kursplan): %s", attempt + 1, e)
+    raise RuntimeError("Failed to fetch FitX kursplan after 3 attempts")

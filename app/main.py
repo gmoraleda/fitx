@@ -5,12 +5,13 @@ import json
 import logging
 import os
 import signal
+from datetime import datetime, timedelta
 from typing import List, Optional
 
 import httpx
 from fastapi import FastAPI, Header, HTTPException, Response
 
-from .fetcher import fetch_course_page
+from .fetcher import fetch_course_page, fetch_kursplan_html
 from .ics import generate_ics
 from .models import CourseEvent
 from .parser import parse_schedule
@@ -30,6 +31,8 @@ REFRESH_INTERVAL_SECONDS = int(os.environ.get("REFRESH_INTERVAL_SECONDS", "900")
 FITX_COOKIE = os.environ.get("FITX_COOKIE")
 REFRESH_TOKEN = os.environ.get("REFRESH_TOKEN")
 TZ = os.environ.get("TZ", "Europe/Berlin")
+FITX_WEEKS_AHEAD = int(os.environ.get("FITX_WEEKS_AHEAD", "2"))
+FITX_USE_KURSPLAN = os.environ.get("FITX_USE_KURSPLAN", "true").lower() in ("1", "true", "yes")
 
 # Comma-separated list of keywords to exclude from event titles (case-insensitive)
 _default_excludes = "booty x,xamba,x step,fatburn x"
@@ -65,10 +68,30 @@ bg_task: Optional[asyncio.Task] = None
 async def _refresh_once() -> None:
     global cache_ics, cache_events
     assert client is not None
-    logger.info("Refreshing FitX schedule for course_id=%s", FITX_COURSE_ID)
+    logger.info("Refreshing FitX schedule for branch_id=%s", FITX_COURSE_ID)
     try:
-        data, content_type = await fetch_course_page(client, FITX_COURSE_ID, FITX_COOKIE)
-        events = parse_schedule(data, content_type)
+        events: list[CourseEvent] = []
+        if FITX_USE_KURSPLAN:
+            now_berlin = datetime.now().astimezone(tz=_tz_berlin())
+            monday = (now_berlin - timedelta(days=now_berlin.weekday())).date()
+            weeks = max(1, FITX_WEEKS_AHEAD)
+            for i in range(weeks):
+                date_from = monday + timedelta(days=i * 7)
+                data, content_type = await fetch_kursplan_html(
+                    client, FITX_COURSE_ID, date_from, FITX_COOKIE
+                )
+                events.extend(parse_schedule(data, content_type))
+        else:
+            data, content_type = await fetch_course_page(client, FITX_COURSE_ID, FITX_COOKIE)
+            events = parse_schedule(data, content_type)
+
+        # De-duplicate after multi-week fetch
+        uniq = {}
+        for e in events:
+            key = (e.id, int(e.start.timestamp()), int(e.end.timestamp()))
+            uniq[key] = e
+        events = sorted(uniq.values(), key=lambda e: (e.start, e.title))
+
         # Apply title-based filtering (case-insensitive substring match)
         if EXCLUDE_KEYWORDS:
             before = len(events)
@@ -83,6 +106,15 @@ async def _refresh_once() -> None:
         logger.info("Refresh successful: %d events", len(events))
     except Exception as e:
         logger.error("Refresh failed: %s", e)
+
+
+def _tz_berlin():
+    try:
+        from zoneinfo import ZoneInfo
+
+        return ZoneInfo("Europe/Berlin")
+    except Exception:
+        return None
 
 
 async def _update_cache(events: List[CourseEvent], ics_text: str) -> None:

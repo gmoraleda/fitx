@@ -68,6 +68,8 @@ up() {
   need_cmd "$DOCKER_BIN"
   mount_cgroups
   start_dockerd
+  log "Pulling latest images (cloudflared only)"
+  compose pull cloudflared || true
   log "Bringing stack up (build if needed)"
   compose up -d --build
   status
@@ -117,7 +119,7 @@ if ! pgrep -x dockerd >/dev/null; then
 fi
 
 # Start compose stack (uses .env with TUNNEL_TOKEN etc.)
-su - pi -c 'cd /home/pi/fitx-calendar && /usr/bin/docker compose -f docker-compose.armv7.yml -f docker-compose.armv7.cloudflared.yml up -d' || true
+su - pi -c 'cd /home/pi/fitx-calendar && /usr/bin/docker compose -f docker-compose.armv7.yml -f docker-compose.armv7.cloudflared.yml pull cloudflared || true; /usr/bin/docker compose -f docker-compose.armv7.yml -f docker-compose.armv7.cloudflared.yml up -d' || true
 
 exit 0
 RC
@@ -130,7 +132,7 @@ usage() {
 Usage: $(basename "$0") <command>
 
 Commands:
-  up             Mount cgroups, start dockerd, compose up -d --build
+  up             Mount cgroups, start dockerd, pull images, compose up -d --build
   down           Compose down
   status         Show docker and compose status + health
   logs           Tail logs for fitx-calendar and cloudflared
@@ -151,4 +153,3 @@ case "$cmd" in
   install-boot) install_boot ;;
   *) usage; exit 1 ;;
 esac
-
